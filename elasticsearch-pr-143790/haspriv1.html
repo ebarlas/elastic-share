@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution Timeline</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #0d1117; color: #c9d1d9; padding: 32px 48px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #e6edf3; }
+  .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 24px; }
+  .legend { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8b949e; cursor: pointer; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend-nudge {
+    display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6e7681;
+    margin-left: 8px; padding-left: 12px; border-left: 1px solid #30363d;
+  }
+  .legend-nudge-icon {
+    position: relative; width: 8px; height: 8px; border-radius: 50%;
+    background: #6e7681; flex-shrink: 0;
+  }
+  .legend-nudge-icon::before {
+    content: '';
+    position: absolute; top: 50%; right: 100%;
+    width: 5px; height: 1.5px;
+    background: #6e7681; opacity: 0.6;
+    transform: translateY(-50%);
+  }
+  .timeline { position: relative; min-width: 100%; overflow-x: auto; }
+  .lane { position: relative; display: flex; align-items: stretch; border-bottom: 2px solid #21262d; }
+  .lane:last-of-type { border-bottom: none; }
+  .lane-label {
+    width: 160px; min-width: 160px; padding: 8px 10px 8px 0;
+    display: flex; align-items: flex-start; justify-content: flex-end;
+    border-right: 1px solid #21262d;
+  }
+  .node-badge {
+    position: sticky; top: 8px;
+    display: inline-block; padding: 3px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+  }
+  .lane-track { position: relative; flex: 1; }
+  .sub-lane {
+    position: relative; height: 24px;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.2);
+  }
+  .sub-lane:last-child { border-bottom: none; }
+  .sub-lane:nth-child(even) { background: rgba(22, 27, 34, 0.35); }
+  .sub-lane.row-highlight { background: rgba(139, 148, 158, 0.10); }
+  .thread-lbl {
+    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    font-size: 9px; color: #484f58;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 14%; pointer-events: none; z-index: 1; line-height: 1;
+  }
+  .conn-line {
+    position: absolute; height: 1.5px; background: rgba(139, 148, 158, 0.25);
+    top: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none;
+  }
+  .evt-dot {
+    position: absolute; width: 8px; height: 8px; border-radius: 50%;
+    transform: translate(-50%, -50%); top: 50%;
+    border: 1.5px solid #0d1117; cursor: pointer; z-index: 3;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .evt-dot:hover {
+    transform: translate(-50%, -50%) scale(1.7);
+    box-shadow: 0 0 6px 2px currentColor; z-index: 4;
+  }
+  .evt-dot.nudged::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 100%;
+    width: 5px;
+    height: 1.5px;
+    background: currentColor;
+    opacity: 0.45;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .timeline.highlight-tag .evt-dot {
+    opacity: 0.15; transition: opacity 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .timeline.highlight-tag .evt-dot.evt-highlighted {
+    opacity: 1; transform: translate(-50%, -50%) scale(1.5);
+    box-shadow: 0 0 6px 2px currentColor; z-index: 4;
+  }
+  .gridline {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: rgba(22, 27, 34, 0.7); pointer-events: none; z-index: 0;
+  }
+  .time-axis { display: flex; align-items: stretch; border-top: 1px solid #30363d; }
+  .time-axis .lane-label { padding: 6px 10px 6px 0; border-right: 1px solid #21262d; }
+  .time-axis-track { position: relative; flex: 1; height: 26px; }
+  .tick {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-size: 10px; color: #6e7681;
+    font-family: 'SFMono-Regular', Consolas, monospace; white-space: nowrap;
+  }
+  .tick::before {
+    content: ''; display: block; width: 1px; height: 5px;
+    background: #30363d; margin: 0 auto 2px;
+  }
+  .tooltip {
+    display: none; position: fixed;
+    background: #1c2128; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; line-height: 1.5; color: #c9d1d9;
+    z-index: 200; pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); max-width: 520px;
+  }
+  .tooltip .tt-tag { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+  .tooltip .tt-detail {
+    color: #8b949e; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Execution Timeline</h1>
+<p class="subtitle">Opaque ID: has-privileges-trace-003 &mdash; 98 entries, 240 ms &mdash; hover dots for details</p>
+
+<div class="legend" id="legend"></div>
+<div class="timeline" id="timeline"></div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const TAG_COLORS = {
+  "authc-chain-start": "#58a6ff",
+  "composite-roles-store-build-role-from-reference": "#3fb950",
+  "composite-roles-store-get-role": "#d2a8ff",
+  "composite-roles-store-get-roles": "#f78166",
+  "http-authn": "#e3b341",
+  "http-authn-complete": "#f97583",
+  "http-incoming": "#ff9bce",
+  "http-request": "#79c0ff",
+  "native-roles-store-accept": "#56d364",
+  "native-roles-store-execute-get-role-request": "#bc8cff",
+  "native-roles-store-get-role-descriptor-response": "#da3633",
+  "rbac-check-privileges": "#f0883e",
+  "rbac-resolve-authorization-info": "#db61a2",
+  "rbac-resolve-authorization-info-subject": "#a5d6ff",
+  "realms-authenticator-consume-token": "#6e7681",
+  "realms-authenticator-realm-result": "#58a6ff",
+  "rest-has-privileges": "#3fb950",
+  "role-descriptor-store-provider-result": "#d2a8ff",
+  "role-descriptor-store-resolve-result": "#f78166",
+  "role-reference-intersection-build-role": "#e3b341",
+  "task-manager-register-and-execute": "#f97583",
+  "thread-context-run": "#ff9bce",
+  "transport-has-privileges": "#79c0ff"
+};
+const NODES = [
+  {
+    "id": "(single source)",
+    "badgeColor": "#e3b34126",
+    "textColor": "#e3b341"
+  }
+];
+const TREES = [
+  {
+    "node": "(single source)",
+    "thread": "#44,elasticsearch[runTask-0]/transport_worker (task 1)",
+    "events": [
+      {
+        "tag": "http-incoming",
+        "time": 0,
+        "detail": "method=POST, uri=/_security/user/_has_privileges"
+      },
+      {
+        "tag": "http-authn",
+        "time": 15,
+        "detail": "method=POST, uri=/_security/user/_has_privileges, allowAnonymous=true"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 17,
+        "detail": "requestType=AuditableHttpRequest, hasToken=false"
+      },
+      {
+        "tag": "realms-authenticator-consume-token",
+        "time": 21,
+        "detail": "tokenType=UsernamePasswordToken, principal=test_user, realms=3"
+      },
+      {
+        "tag": "realms-authenticator-realm-result",
+        "time": 22,
+        "detail": "realmName=reserved, status=CONTINUE"
+      },
+      {
+        "tag": "realms-authenticator-realm-result",
+        "time": 24,
+        "detail": "realmName=default_file, status=CONTINUE"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#44,elasticsearch[runTask-0]/transport_worker (task 2)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 26,
+        "detail": "action=indices:data/read/get, requestClass=GetRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 27,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 28,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 30,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 32,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 34,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 36,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 38,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 41,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 1)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 43,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#101,elasticsearch[runTask-0]/get",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 49,
+        "detail": "action=indices:data/read/get[s]"
+      },
+      {
+        "tag": "realms-authenticator-realm-result",
+        "time": 110,
+        "detail": "realmName=default_native, status=SUCCESS"
+      },
+      {
+        "tag": "http-authn-complete",
+        "time": 111,
+        "detail": "user=test_user, realm=default_native"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#44,elasticsearch[runTask-0]/transport_worker (task 3)",
+    "events": [
+      {
+        "tag": "http-request",
+        "time": 112,
+        "detail": "method=POST, uri=/_security/user/_has_privileges"
+      },
+      {
+        "tag": "rest-has-privileges",
+        "time": 118,
+        "detail": "method=POST, uri=/_security/user/_has_privileges"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#44,elasticsearch[runTask-0]/transport_worker (task 4)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 120,
+        "detail": "action=cluster:admin/xpack/security/user/has_privileges, requestClass=HasPrivilegesRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 121,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 122,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 123,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 124,
+        "detail": "subjectType=USER, user=test_user"
+      },
+      {
+        "tag": "role-reference-intersection-build-role",
+        "time": 125,
+        "detail": "referenceType=NamedRoleReference, roleKeySource=roles_stores"
+      },
+      {
+        "tag": "composite-roles-store-build-role-from-reference",
+        "time": 126,
+        "detail": "referenceType=NamedRoleReference, roleKeySource=roles_stores, roleNamesCount=1"
+      },
+      {
+        "tag": "role-descriptor-store-provider-result",
+        "time": 130,
+        "detail": "providerType=ReservedRolesStore, resolvedCount=0"
+      },
+      {
+        "tag": "role-descriptor-store-provider-result",
+        "time": 132,
+        "detail": "providerType=FileRolesStore, resolvedCount=0"
+      },
+      {
+        "tag": "native-roles-store-accept",
+        "time": 133,
+        "detail": "requestedCount=1"
+      },
+      {
+        "tag": "native-roles-store-execute-get-role-request",
+        "time": 138,
+        "detail": "role=test_role, docId=role-test_role"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#44,elasticsearch[runTask-0]/transport_worker (task 5)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 139,
+        "detail": "action=indices:data/read/get, requestClass=GetRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 141,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 142,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 143,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 145,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 147,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 149,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 151,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 154,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 2)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 156,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#102,elasticsearch[runTask-0]/get",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 157,
+        "detail": "action=indices:data/read/get[s]"
+      },
+      {
+        "tag": "native-roles-store-get-role-descriptor-response",
+        "time": 157,
+        "detail": "roleId=test_role, exists=true"
+      },
+      {
+        "tag": "role-descriptor-store-provider-result",
+        "time": 157,
+        "detail": "providerType=NativeRolesStore, resolvedCount=1"
+      },
+      {
+        "tag": "role-descriptor-store-resolve-result",
+        "time": 158,
+        "detail": "effectiveCount=1, missingCount=0, success=true"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#62,elasticsearch[runTask-0]/generic",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 158,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#52,elasticsearch[runTask-0]/generic (task 1)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 159,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#52,elasticsearch[runTask-0]/generic (task 2)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 166,
+        "detail": "action=indices:data/read/search, requestClass=SearchRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 166,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 167,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 167,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 168,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 171,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 172,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 173,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 173,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 3)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 175,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 4)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 212,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 5)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 215,
+        "detail": "action=indices:data/read/scroll/clear, requestClass=ClearScrollRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 216,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 216,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 217,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 217,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "transport-has-privileges",
+        "time": 223,
+        "detail": "username=test_user, runDetailed=true"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#77,elasticsearch[runTask-0]/generic (task 1)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 219,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#77,elasticsearch[runTask-0]/generic (task 2)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 220,
+        "detail": "action=indices:data/read/search[free_context/scroll]"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 220,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 220,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 221,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 221,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 6)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 224,
+        "detail": "action=indices:data/read/search, requestClass=SearchRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 225,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 225,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 226,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 227,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 228,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 230,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 231,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 232,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 7)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 234,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 8)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 235,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#95,elasticsearch[runTask-0]/system_critical_read (task 9)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 236,
+        "detail": "action=indices:data/read/scroll/clear, requestClass=ClearScrollRequest"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 236,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 236,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 237,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 237,
+        "detail": "subjectType=USER, user=_xpack_security"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info-subject",
+        "time": 238,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 239,
+        "detail": "subjectType=USER, user=test_user"
+      },
+      {
+        "tag": "role-reference-intersection-build-role",
+        "time": 239,
+        "detail": "referenceType=NamedRoleReference, roleKeySource=roles_stores"
+      },
+      {
+        "tag": "composite-roles-store-build-role-from-reference",
+        "time": 239,
+        "detail": "referenceType=NamedRoleReference, roleKeySource=roles_stores, roleNamesCount=1"
+      },
+      {
+        "tag": "rbac-check-privileges",
+        "time": 240,
+        "detail": "detailed=true, clusterChecks=59, indexChecks=3, appChecks=3"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#65,elasticsearch[runTask-0]/generic (task 1)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 238,
+        "detail": "action=n/a"
+      }
+    ]
+  },
+  {
+    "node": "(single source)",
+    "thread": "#65,elasticsearch[runTask-0]/generic (task 2)",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 238,
+        "detail": "action=indices:data/read/search[free_context/scroll]"
+      },
+      {
+        "tag": "authc-chain-start",
+        "time": 238,
+        "detail": "requestType=AuditableTransportRequest, hasToken=false"
+      },
+      {
+        "tag": "rbac-resolve-authorization-info",
+        "time": 238,
+        "detail": "subjectType=USER"
+      },
+      {
+        "tag": "composite-roles-store-get-roles",
+        "time": 239,
+        "detail": "runAs=false"
+      },
+      {
+        "tag": "composite-roles-store-get-role",
+        "time": 239,
+        "detail": "subjectType=USER, user=_xpack_security"
+      }
+    ]
+  }
+];
+
+const PAD_L = 16;
+const PAD_R = 14;
+const T_MIN = 0;
+const T_MAX = 250;
+const T_SPAN = T_MAX - T_MIN;
+const TICK_INTERVAL = 25;
+const MIN_GAP = 1.4;
+
+function pct(t) { return PAD_L + ((t - T_MIN) / T_SPAN) * (100 - PAD_L - PAD_R); }
+
+function displayPositions(events) {
+  const natural = events.map(e => pct(e.time));
+  const pos = [...natural];
+  for (let i = 1; i < pos.length; i++) {
+    if (pos[i] - pos[i - 1] < MIN_GAP) pos[i] = pos[i - 1] + MIN_GAP;
+  }
+  return { pos, nudged: pos.map((p, i) => Math.abs(p - natural[i]) > 0.01) };
+}
+
+function buildLegend() {
+  const el = document.getElementById('legend');
+  const timeline = document.getElementById('timeline');
+  for (const [tag, color] of Object.entries(TAG_COLORS)) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    const dot = document.createElement('div');
+    dot.className = 'legend-dot';
+    dot.style.background = color;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(tag));
+    item.addEventListener('mouseenter', () => {
+      timeline.classList.add('highlight-tag');
+      timeline.querySelectorAll('.evt-dot[data-tag="' + tag + '"]').forEach(d => {
+        d.classList.add('evt-highlighted');
+      });
+    });
+    item.addEventListener('mouseleave', () => {
+      timeline.classList.remove('highlight-tag');
+      timeline.querySelectorAll('.evt-dot.evt-highlighted').forEach(d => {
+        d.classList.remove('evt-highlighted');
+      });
+    });
+    el.appendChild(item);
+  }
+  const nudgeHint = document.createElement('div');
+  nudgeHint.className = 'legend-nudge';
+  const nudgeIcon = document.createElement('div');
+  nudgeIcon.className = 'legend-nudge-icon';
+  nudgeHint.appendChild(nudgeIcon);
+  nudgeHint.appendChild(document.createTextNode('position adjusted for spacing'));
+  el.appendChild(nudgeHint);
+  const modHint = document.createElement('div');
+  modHint.className = 'legend-nudge';
+  modHint.appendChild(document.createTextNode('hold ⌘/Alt + hover dot to highlight type'));
+  el.appendChild(modHint);
+}
+
+function buildTimeline() {
+  const container = document.getElementById('timeline');
+  const tooltip = document.getElementById('tooltip');
+  const ticks = [];
+  for (let t = T_MIN; t <= T_MAX; t += TICK_INTERVAL) ticks.push(t);
+  const tagCounters = {};
+
+  NODES.forEach((node, ni) => {
+    const lane = document.createElement('div');
+    lane.className = 'lane';
+
+    const label = document.createElement('div');
+    label.className = 'lane-label';
+    const badge = document.createElement('span');
+    badge.className = 'node-badge';
+    badge.style.background = node.badgeColor;
+    badge.style.color = node.textColor;
+    badge.textContent = node.id;
+    label.appendChild(badge);
+    lane.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'lane-track';
+
+    const nodeTrees = TREES.filter(t => t.node === node.id);
+
+    ticks.forEach(t => {
+      const gl = document.createElement('div');
+      gl.className = 'gridline';
+      gl.style.left = pct(t) + '%';
+      track.appendChild(gl);
+    });
+
+    nodeTrees.forEach(tree => {
+      const sl = document.createElement('div');
+      sl.className = 'sub-lane';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'thread-lbl';
+      lbl.textContent = tree.thread;
+      sl.appendChild(lbl);
+
+      const { pos, nudged } = displayPositions(tree.events);
+
+      if (pos.length > 1) {
+        const line = document.createElement('div');
+        line.className = 'conn-line';
+        line.style.left = pos[0] + '%';
+        line.style.width = (pos[pos.length - 1] - pos[0]) + '%';
+        sl.appendChild(line);
+      }
+
+      tree.events.forEach((evt, ei) => {
+        const dot = document.createElement('div');
+        dot.className = 'evt-dot';
+        if (nudged[ei]) dot.classList.add('nudged');
+        dot.dataset.tag = evt.tag;
+        tagCounters[evt.tag] = (tagCounters[evt.tag] || 0) + 1;
+        dot.dataset.tagIdx = tagCounters[evt.tag];
+        const color = TAG_COLORS[evt.tag] || '#6e7681';
+        dot.style.background = color;
+        dot.style.color = color;
+        dot.style.left = pos[ei] + '%';
+        attachTooltip(dot, evt, tree, tooltip, nudged[ei]);
+        sl.appendChild(dot);
+      });
+
+      track.appendChild(sl);
+    });
+
+    lane.appendChild(track);
+    container.appendChild(lane);
+  });
+
+  const axis = document.createElement('div');
+  axis.className = 'time-axis';
+  const axLbl = document.createElement('div');
+  axLbl.className = 'lane-label';
+  axLbl.innerHTML = '<span style="font-size:10px;color:#6e7681">time (ms)</span>';
+  axis.appendChild(axLbl);
+  const axTrack = document.createElement('div');
+  axTrack.className = 'time-axis-track';
+  ticks.forEach(t => {
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.left = pct(t) + '%';
+    tick.textContent = t;
+    axTrack.appendChild(tick);
+  });
+  axis.appendChild(axTrack);
+  container.appendChild(axis);
+  tagTotals = tagCounters;
+}
+
+let hoveredTag = null;
+let hoveredDot = null;
+let tagTotals = {};
+const timeline = document.getElementById('timeline');
+
+function activateTagHighlight(tag) {
+  timeline.classList.add('highlight-tag');
+  timeline.querySelectorAll('.evt-dot[data-tag="' + tag + '"]').forEach(d => {
+    d.classList.add('evt-highlighted');
+  });
+  if (hoveredDot) appendTagCount(hoveredDot, tag);
+}
+
+function clearTagHighlight() {
+  timeline.classList.remove('highlight-tag');
+  timeline.querySelectorAll('.evt-dot.evt-highlighted').forEach(d => {
+    d.classList.remove('evt-highlighted');
+  });
+  const countEl = document.getElementById('tooltip').querySelector('.tt-count');
+  if (countEl) countEl.remove();
+}
+
+function appendTagCount(dot, tag) {
+  const tooltip = document.getElementById('tooltip');
+  if (tooltip.querySelector('.tt-count')) return;
+  const idx = dot.dataset.tagIdx;
+  const total = tagTotals[tag] || '?';
+  const el = document.createElement('div');
+  el.className = 'tt-count';
+  el.style.cssText = 'margin-top:4px;padding-top:4px;border-top:1px solid #30363d;color:#8b949e;font-size:11px;font-family:SFMono-Regular,Consolas,monospace';
+  el.textContent = idx + ' of ' + total + ' [' + tag + ']';
+  tooltip.appendChild(el);
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.altKey || e.metaKey) && hoveredTag && !timeline.classList.contains('highlight-tag')) {
+    activateTagHighlight(hoveredTag);
+  }
+});
+document.addEventListener('keyup', () => {
+  if (timeline.classList.contains('highlight-tag')) clearTagHighlight();
+});
+
+function attachTooltip(el, evt, tree, tooltip, isNudged) {
+  el.addEventListener('mouseenter', e => {
+    hoveredTag = evt.tag;
+    hoveredDot = el;
+    const lane = el.closest('.sub-lane');
+    if (lane) lane.classList.add('row-highlight');
+    const color = TAG_COLORS[evt.tag] || '#6e7681';
+    let html = '<div class="tt-tag" style="color:' + color + '">[' + evt.tag + ']</div>';
+    html += '<div class="tt-detail">';
+    html += '@' + evt.time + 'ms';
+    html += '<br>thread: ' + tree.thread;
+    if (evt.exchangeId) html += '<br>exchangeId: ' + evt.exchangeId;
+    if (evt.detail) html += '<br>' + evt.detail;
+    if (isNudged) html += '<br><span style="color:#e3b341">⬥ position adjusted for spacing</span>';
+    html += '</div>';
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+    posTooltip(e);
+    if (e.altKey || e.metaKey) activateTagHighlight(evt.tag);
+  });
+  el.addEventListener('mousemove', posTooltip);
+  el.addEventListener('mouseleave', () => {
+    hoveredTag = null;
+    hoveredDot = null;
+    tooltip.style.display = 'none';
+    const lane = el.closest('.sub-lane');
+    if (lane) lane.classList.remove('row-highlight');
+    clearTagHighlight();
+  });
+
+  function posTooltip(e) {
+    let x = e.clientX + 14, y = e.clientY + 14;
+    const r = tooltip.getBoundingClientRect();
+    if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 14;
+    if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 14;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+}
+
+buildLegend();
+buildTimeline();
+</script>
+</body>
+</html>
