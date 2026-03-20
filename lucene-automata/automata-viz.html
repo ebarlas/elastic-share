@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lucene DFA Visualization</title>
+<link rel="icon" href="data:,">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f8f9fa;color:#1a1a2e;padding:32px}
+h1{font-size:1.5rem;margin-bottom:4px}
+.sub{color:#666;margin-bottom:24px;font-size:.9rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(460px,1fr));gap:20px}
+.card{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.card h2{font-family:'SF Mono','Fira Code',monospace;font-size:1.15rem}
+.stats{font-size:.82rem;color:#888;margin:4px 0 12px}
+.graph{overflow-x:auto}
+.graph svg{max-width:100%;height:auto}
+</style>
+</head>
+<body>
+<h1>Lucene Automata DFA Visualization</h1>
+<p class="sub">Determinized &amp; minimized automata for canonical Elasticsearch security wildcard and regexp patterns</p>
+<div class="grid" id="g"></div>
+<script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js"></script>
+<script>
+const DATA=[{"pattern":"abc","numStates":4,"accepts":[1],"transitions":[[0,2,97,97],[2,3,98,98],[3,1,99,99]]},{"pattern":"abc*","numStates":4,"accepts":[1],"transitions":[[0,3,97,97],[1,1,0,1114111],[2,1,99,99],[3,2,98,98]]},{"pattern":"*abc","numStates":4,"accepts":[1],"transitions":[[0,0,0,96],[0,3,97,97],[0,0,98,1114111],[1,0,0,96],[1,3,97,97],[1,0,98,1114111],[2,0,0,96],[2,3,97,97],[2,0,98,98],[2,1,99,99],[2,0,100,1114111],[3,0,0,96],[3,3,97,97],[3,2,98,98],[3,0,99,1114111]]},{"pattern":"*abc*","numStates":4,"accepts":[1],"transitions":[[0,0,0,96],[0,3,97,97],[0,0,98,1114111],[1,1,0,1114111],[2,0,0,96],[2,3,97,97],[2,0,98,98],[2,1,99,99],[2,0,100,1114111],[3,0,0,96],[3,3,97,97],[3,2,98,98],[3,0,99,1114111]]},{"pattern":"ab*cd","numStates":5,"accepts":[1],"transitions":[[0,4,97,97],[1,2,0,98],[1,3,99,99],[1,2,100,1114111],[2,2,0,98],[2,3,99,99],[2,2,100,1114111],[3,2,0,98],[3,3,99,99],[3,1,100,100],[3,2,101,1114111],[4,2,98,98]]},{"pattern":"a?c","numStates":4,"accepts":[1],"transitions":[[0,2,97,97],[2,3,0,1114111],[3,1,99,99]]},{"pattern":"a(b|c)d","numStates":4,"accepts":[1],"transitions":[[0,2,97,97],[2,3,98,99],[3,1,100,100]]},{"pattern":"a(bc|de|f)","numStates":6,"accepts":[1],"transitions":[[0,5,97,97],[2,3,99,99],[3,1,102,102],[4,3,101,101],[5,2,98,98],[5,4,100,100]]}];
+function lbl(mn,mx){
+  if(mn===0&&mx===0x10FFFF)return"Σ";
+  const c=v=>{
+    if(v===0)return"MIN";
+    if(v===0x10FFFF)return"MAX";
+    if(v===32)return"SP";
+    // Backtick is a valid printable character but is visually ambiguous in range endpoints.
+    if(v===96)return"U+0060";
+    if(v>=33&&v<=126&&v!==34&&v!==92)return String.fromCharCode(v);
+    const hex=v.toString(16).toUpperCase().padStart(v<=0xFFFF?4:6,"0");
+    return"U+"+hex;
+  };
+  return mn===mx?c(mn):c(mn)+"–"+c(mx);
+}
+function dot(a){
+  let d='digraph{rankdir=LR;node[shape=circle,fontsize=11,width=.35,fixedsize=true,style=filled,fillcolor="#e8f4fd"];edge[fontsize=9];';
+  for(const s of a.accepts)d+=s+'[shape=doublecircle,width=.4,fillcolor="#d4edda"];';
+  d+='start[shape=none,label="",width=0,height=0];start->0;';
+  const g={};
+  for(const[s,dst,mn,mx]of a.transitions){const k=s+"->"+dst;(g[k]??=[]).push(lbl(mn,mx));}
+  for(const[k,ls]of Object.entries(g)){const[s,dst]=k.split("->");d+=s+"->"+dst+'[label="'+ls.join(", ")+'"];';}
+  return d+"}";
+}
+var viz=new Viz();
+const el=document.getElementById("g");el.innerHTML="";
+for(const a of DATA){
+  const card=document.createElement("div");card.className="card";
+  const h2=document.createElement("h2");h2.textContent=a.pattern;
+  const stats=document.createElement("div");stats.className="stats";stats.textContent=a.numStates+" states, "+a.transitions.length+" transitions";
+  const graph=document.createElement("div");graph.className="graph";
+  card.append(h2,stats,graph);
+  viz.renderSVGElement(dot(a)).then(svg=>graph.appendChild(svg)).catch(e=>graph.textContent=e.message);
+  el.appendChild(card);
+}
+</script>
+</body>
+</html>

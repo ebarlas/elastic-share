@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Automatons.subsetOf BFS Visualization</title>
+<link rel="icon" href="data:,">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f8f9fa;color:#1a1a2e;padding:32px}
+h1{font-size:1.5rem;margin-bottom:8px}
+.sub{color:#666;margin-bottom:20px;font-size:.92rem;max-width:920px}
+.case{background:#fff;border-radius:12px;padding:18px 18px 2px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin:18px 0}
+.caseHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.caseHead h2{font-size:1.1rem}
+.caseHint{color:#666;font-size:.9rem}
+.summary{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 18px}
+.pill{background:#fff;border-radius:999px;padding:8px 12px;box-shadow:0 1px 3px rgba(0,0,0,.08);font-size:.9rem}
+.pill b{font-family:'SF Mono','Fira Code',monospace}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 0}
+.sw{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;color:#555}
+.bx{width:10px;height:10px;border-radius:3px;border:1px solid rgba(0,0,0,.12)}
+.it{background:#fff;border-radius:10px;padding:16px 16px 14px;box-shadow:0 1px 3px rgba(0,0,0,.08);margin-bottom:16px}
+.itHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.itHead h2{font-size:1.05rem}
+.itMeta{font-size:.86rem;color:#666}
+.bad{color:#b42318;font-weight:600}
+.mono{font-family:'SF Mono','Fira Code',ui-monospace,monospace;font-size:.86rem;white-space:pre;overflow:auto;margin-top:10px;padding:10px 12px;border-radius:8px;border:1px solid rgba(0,0,0,.06);background:#fbfbfc;color:#333}
+.sets{margin-top:10px}
+.sets summary{cursor:pointer;color:#444;font-size:.9rem}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+@media (max-width: 980px){.pair{grid-template-columns:1fr}}
+.side h3{font-size:.95rem;margin:0 0 6px}
+.side .graph{overflow-x:auto;border:1px solid rgba(0,0,0,.06);border-radius:8px;padding:8px}
+.side .graph svg{max-width:100%;height:auto}
+</style>
+</head>
+<body>
+<h1>Automatons.subsetOf BFS Traversal</h1>
+<p class="sub">
+This page visualizes the breadth-first traversal performed by <b>Automatons.subsetOf(a1, a2)</b>.
+Each iteration shows the current state-pair, the queue/visited sets, and highlights the corresponding states in each automaton.
+</p>
+<div class="legend">
+  <span class="sw"><span class="bx" style="background:#ffd1a6;border-color:#d9480f"></span>current</span>
+  <span class="sw"><span class="bx" style="background:#fff3cd;border-color:#b08900"></span>queued</span>
+  <span class="sw"><span class="bx" style="background:#e6ffe6;border-color:#2f9e44"></span>visited</span>
+  <span class="sw"><span class="bx" style="background:#d4edda"></span>accept</span>
+</div>
+<div id="root"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/viz.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/viz.js@2.1.2/full.render.js"></script>
+<script>
+const DATA={"traces":[{"leftLabel":"abc*","rightLabel":"*abc*","left":{"numStates":4,"accepts":[1],"transitions":[[0,3,97,97],[1,1,0,1114111],[2,1,99,99],[3,2,98,98]]},"right":{"numStates":4,"accepts":[1],"transitions":[[0,0,0,96],[0,3,97,97],[0,0,98,1114111],[1,1,0,1114111],[2,0,0,96],[2,3,97,97],[2,0,98,98],[2,1,99,99],[2,0,100,1114111],[3,0,0,96],[3,3,97,97],[3,2,98,98],[3,0,99,1114111]]},"result":true,"steps":[{"i":0,"current":[0,0],"added":[[3,3]],"queue":[[3,3]],"visited":[[0,0],[3,3]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[97,97,3],"t2":[97,97,3],"seg":[97,97]}],"failure":null},{"i":1,"current":[3,3],"added":[[2,2]],"queue":[[2,2]],"visited":[[0,0],[2,2],[3,3]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[98,98,2],"t2":[98,98,2],"seg":[98,98]}],"failure":null},{"i":2,"current":[2,2],"added":[[1,1]],"queue":[[1,1]],"visited":[[0,0],[1,1],[2,2],[3,3]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[99,99,1],"t2":[99,99,1],"seg":[99,99]}],"failure":null},{"i":3,"current":[1,1],"added":[],"queue":[],"visited":[[0,0],[1,1],[2,2],[3,3]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[0,1114111,1],"t2":[0,1114111,1],"seg":[0,1114111]}],"failure":null}]},{"leftLabel":"/a(bc|de)f/","rightLabel":"a*f","left":{"numStates":6,"accepts":[1],"transitions":[[0,5,97,97],[2,3,99,99],[3,1,102,102],[4,3,101,101],[5,2,98,98],[5,4,100,100]]},"right":{"numStates":3,"accepts":[1],"transitions":[[0,2,97,97],[1,2,0,101],[1,1,102,102],[1,2,103,1114111],[2,2,0,101],[2,1,102,102],[2,2,103,1114111]]},"result":true,"steps":[{"i":0,"current":[0,0],"added":[[5,2]],"queue":[[5,2]],"visited":[[0,0],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[97,97,5],"t2":[97,97,2],"seg":[97,97]}],"failure":null},{"i":1,"current":[5,2],"added":[[2,2],[4,2]],"queue":[[2,2],[4,2]],"visited":[[0,0],[2,2],[4,2],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[98,98,2],"t2":[0,101,2],"seg":[98,98]},{"t1":[100,100,4],"t2":[0,101,2],"seg":[100,100]}],"failure":null},{"i":2,"current":[2,2],"added":[[3,2]],"queue":[[4,2],[3,2]],"visited":[[0,0],[2,2],[3,2],[4,2],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[99,99,3],"t2":[0,101,2],"seg":[99,99]}],"failure":null},{"i":3,"current":[4,2],"added":[],"queue":[[3,2]],"visited":[[0,0],[2,2],[3,2],[4,2],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[101,101,3],"t2":[0,101,2],"seg":[101,101]}],"failure":null},{"i":4,"current":[3,2],"added":[[1,1]],"queue":[[1,1]],"visited":[[0,0],[1,1],[2,2],[3,2],[4,2],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[{"t1":[102,102,1],"t2":[102,102,1],"seg":[102,102]}],"failure":null},{"i":5,"current":[1,1],"added":[],"queue":[],"visited":[[0,0],[1,1],[2,2],[3,2],[4,2],[5,2]],"splits":0,"rangesTruncated":false,"ranges":[],"failure":null}]}]};
+
+function lbl(mn,mx){
+  if(mn===0&&mx===0x10FFFF)return"Σ";
+  const c=v=>{
+    if(v===0)return"MIN";
+    if(v===0x10FFFF)return"MAX";
+    if(v===32)return"SP";
+    if(v===96)return"U+0060";
+    if(v>=33&&v<=126&&v!==34&&v!==92)return String.fromCharCode(v);
+    const hex=v.toString(16).toUpperCase().padStart(v<=0xFFFF?4:6,"0");
+    return"U+"+hex;
+  };
+  return mn===mx?c(mn):c(mn)+"–"+c(mx);
+}
+
+function uniq(arr){ return [...new Set(arr)]; }
+function projPairs(pairs, idx){ return uniq(pairs.map(p=>p[idx])); }
+
+function dotAutomaton(a, hl){
+  const accept = new Set(a.accepts);
+  const visited = new Set(hl.visited ?? []);
+  const queued = new Set(hl.queued ?? []);
+  const current = hl.current;
+
+  let d='digraph{rankdir=LR;node[fontsize=11,width=.35,fixedsize=true,style=filled];edge[fontsize=9];';
+  d+='start[shape=none,label="",width=0,height=0];start->0;';
+
+  for(let s=0;s<a.numStates;s++){
+    let fill="#e8f4fd", color="rgba(0,0,0,.35)", pen=1.2, shape="circle", width=".35";
+    if(accept.has(s)){ shape="doublecircle"; width=".4"; fill="#d4edda"; }
+    if(visited.has(s)){ color="#2f9e44"; }
+    if(queued.has(s)){ color="#b08900"; }
+    if(s===current){ color="#d9480f"; pen=2.6; }
+    if(queued.has(s) && accept.has(s)===false) fill="#fff3cd";
+    if(visited.has(s) && accept.has(s)===false) fill="#e6ffe6";
+    if(s===current) fill="#ffd1a6";
+    d+=`${s}[shape=${shape},width=${width},fillcolor="${fill}",color="${color}",penwidth=${pen}];`;
+  }
+
+  const g={};
+  for(const [src,dst,mn,mx] of a.transitions){
+    const k=src+"->"+dst;
+    (g[k]??=[]).push(lbl(mn,mx));
+  }
+  for(const [k,ls] of Object.entries(g)){
+    const [src,dst]=k.split("->");
+    d+=`${src}->${dst}[label="${ls.join(", ")}"];`;
+  }
+  return d+"}";
+}
+
+function pill(k,v){
+  const el=document.createElement("div");
+  el.className="pill";
+  el.innerHTML = `<b>${k}</b> ${escapeHtml(v)}`;
+  return el;
+}
+function escapeHtml(s){
+  return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+}
+
+const viz = new Viz();
+const root = document.getElementById("root");
+root.innerHTML = '';
+
+for (let idx=0; idx<DATA.traces.length; idx++){
+  const tr = DATA.traces[idx];
+  const caseEl = document.createElement("section");
+  caseEl.className = "case";
+
+  const head = document.createElement("div");
+  head.className = "caseHead";
+  const title = document.createElement("h2");
+  title.textContent = `Trace ${idx+1}: ${tr.leftLabel} ⊆ ${tr.rightLabel}`;
+  const hint = document.createElement("div");
+  hint.className = "caseHint";
+  hint.textContent = idx===0 ? "Canonical prefix/infix example" : "This trace is expected to include codepoint range splits";
+  head.append(title, hint);
+
+  const summary=document.createElement("div");
+  summary.className="summary";
+  summary.append(
+    pill("a1", tr.leftLabel),
+    pill("a2", tr.rightLabel),
+    pill("result", tr.result ? "true" : "false"),
+    pill("iterations", String(tr.steps.length))
+  );
+
+  const stepsEl=document.createElement("div");
+  for (const step of tr.steps){
+    const it=document.createElement("div");
+    it.className="it";
+
+    const itHead=document.createElement("div");
+    itHead.className="itHead";
+    const h=document.createElement("h3");
+    h.textContent = `Iteration ${step.i}: (s1=${step.current[0]}, s2=${step.current[1]})`;
+    const meta=document.createElement("div");
+    meta.className="itMeta";
+    meta.innerHTML =
+      `queue: <b>${step.queue.length}</b> • visited: <b>${step.visited.length}</b> • added: <b>${step.added.length}</b> • splits: <b>${step.splits}</b>`+
+      `${step.rangesTruncated ? ` • <span class="bad">ranges truncated</span>` : ""}`+
+      `${step.failure ? ` • <span class="bad">FAIL</span>` : ""}`;
+    itHead.append(h, meta);
+
+    const pair=document.createElement("div");
+    pair.className="pair";
+    const leftSide = side("a1", tr.leftLabel);
+    const rightSide = side("a2", tr.rightLabel);
+
+    const visitedS1 = projPairs(step.visited, 0);
+    const visitedS2 = projPairs(step.visited, 1);
+    const queuedS1 = projPairs(step.queue, 0);
+    const queuedS2 = projPairs(step.queue, 1);
+
+    const leftHl = { current: step.current[0], visited: visitedS1, queued: queuedS1 };
+    const rightHl = { current: step.current[1], visited: visitedS2, queued: queuedS2 };
+
+    viz.renderSVGElement(dotAutomaton(tr.left, leftHl)).then(svg => leftSide.querySelector(".graph").appendChild(svg))
+       .catch(e => leftSide.querySelector(".graph").textContent = e.message);
+    viz.renderSVGElement(dotAutomaton(tr.right, rightHl)).then(svg => rightSide.querySelector(".graph").appendChild(svg))
+       .catch(e => rightSide.querySelector(".graph").textContent = e.message);
+
+    pair.append(leftSide, rightSide);
+    it.append(itHead, pair);
+    if (step.failure){
+      const fail=document.createElement("div");
+      fail.className="bad";
+      fail.style.marginTop="8px";
+      fail.textContent = step.failure;
+      it.appendChild(fail);
+    }
+
+    it.appendChild(detailsBlock("Traversal sets",
+      `current: (${step.current[0]}, ${step.current[1]})
+`+
+      `added:   ${fmtPairs(step.added)}
+`+
+      `queue:   ${fmtPairs(step.queue)}
+`+
+      `visited: ${fmtPairs(step.visited)}`
+    ));
+    it.appendChild(detailsBlock("Range processing", fmtRanges(step.ranges)));
+
+    stepsEl.appendChild(it);
+  }
+
+  caseEl.append(head, summary, stepsEl);
+  root.appendChild(caseEl);
+}
+
+function fmtPairs(pairs){
+  if(!pairs || pairs.length===0) return "(empty)";
+  return pairs.map(p=>`(${p[0]},${p[1]})`).join(" ");
+}
+
+function detailsBlock(title, content){
+  const d=document.createElement("details");
+  d.className="sets";
+  const s=document.createElement("summary");
+  s.textContent=title;
+  const pre=document.createElement("div");
+  pre.className="mono";
+  pre.textContent=content;
+  d.append(s, pre);
+  return d;
+}
+
+function fmtRanges(ranges){
+  if(!ranges || ranges.length===0) return "(none)";
+  const groups = new Map();
+  for (const r of ranges){
+    const k = r.t1.join(",");
+    const g = groups.get(k) ?? { t1: r.t1, covers: [] };
+    g.covers.push(r);
+    groups.set(k, g);
+  }
+  let out = "";
+  for (const g of groups.values()){
+    const [t1Min,t1Max,t1Dest] = g.t1;
+    out += `t1 ${lbl(t1Min,t1Max)} -> ${t1Dest}`;
+    if (g.covers.length > 1) out += `  (SPLIT x${g.covers.length})`;
+    out += `
+`;
+    for (const c of g.covers){
+      const [t2Min,t2Max,t2Dest] = c.t2;
+      const [segMin,segMax] = c.seg;
+      out += `  cover ${lbl(segMin,segMax)} via t2 ${lbl(t2Min,t2Max)} -> ${t2Dest}  next (${t1Dest},${t2Dest})
+`;
+    }
+    out += `
+`;
+  }
+  return out.trimEnd();
+}
+
+function side(title, label){
+  const el=document.createElement("div");
+  el.className="side";
+  const h=document.createElement("h3");
+  h.innerHTML = `${escapeHtml(title)} <span style="color:#666;font-weight:400">(${escapeHtml(label)})</span>`;
+  const g=document.createElement("div");
+  g.className="graph";
+  el.append(h,g);
+  return el;
+}
+</script>
+</body>
+</html>
