@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Execution Timeline</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #0d1117; color: #c9d1d9; padding: 32px 48px;
+  }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; color: #e6edf3; }
+  .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 24px; }
+  .legend { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8b949e; cursor: pointer; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend-nudge {
+    display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6e7681;
+    margin-left: 8px; padding-left: 12px; border-left: 1px solid #30363d;
+  }
+  .legend-nudge-icon {
+    position: relative; width: 8px; height: 8px; border-radius: 50%;
+    background: #6e7681; flex-shrink: 0;
+  }
+  .legend-nudge-icon::before {
+    content: '';
+    position: absolute; top: 50%; right: 100%;
+    width: 5px; height: 1.5px;
+    background: #6e7681; opacity: 0.6;
+    transform: translateY(-50%);
+  }
+  .timeline { position: relative; min-width: 100%; overflow-x: auto; }
+  .lane { position: relative; display: flex; align-items: stretch; border-bottom: 2px solid #21262d; }
+  .lane:last-of-type { border-bottom: none; }
+  .lane-label {
+    width: 160px; min-width: 160px; padding: 8px 10px 8px 0;
+    display: flex; align-items: flex-start; justify-content: flex-end;
+    border-right: 1px solid #21262d;
+  }
+  .node-badge {
+    position: sticky; top: 8px;
+    display: inline-block; padding: 3px 8px; border-radius: 4px;
+    font-size: 11px; font-weight: 600;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+  }
+  .lane-track { position: relative; flex: 1; }
+  .sub-lane {
+    position: relative; height: 24px;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.2);
+  }
+  .sub-lane:last-child { border-bottom: none; }
+  .sub-lane:nth-child(even) { background: rgba(22, 27, 34, 0.35); }
+  .sub-lane.row-highlight { background: rgba(139, 148, 158, 0.10); }
+  .thread-lbl {
+    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    font-size: 9px; color: #484f58;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 14%; pointer-events: none; z-index: 1; line-height: 1;
+  }
+  .conn-line {
+    position: absolute; height: 1.5px; background: rgba(139, 148, 158, 0.25);
+    top: 50%; transform: translateY(-50%); z-index: 1; pointer-events: none;
+  }
+  .evt-dot {
+    position: absolute; width: 8px; height: 8px; border-radius: 50%;
+    transform: translate(-50%, -50%); top: 50%;
+    border: 1.5px solid #0d1117; cursor: pointer; z-index: 3;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .evt-dot:hover {
+    transform: translate(-50%, -50%) scale(1.7);
+    box-shadow: 0 0 6px 2px currentColor; z-index: 4;
+  }
+  .evt-dot.nudged::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 100%;
+    width: 5px;
+    height: 1.5px;
+    background: currentColor;
+    opacity: 0.45;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  .timeline.highlight-tag .evt-dot {
+    opacity: 0.15; transition: opacity 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
+  }
+  .timeline.highlight-tag .evt-dot.evt-highlighted {
+    opacity: 1; transform: translate(-50%, -50%) scale(1.5);
+    box-shadow: 0 0 6px 2px currentColor; z-index: 4;
+  }
+  .gridline {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: rgba(22, 27, 34, 0.7); pointer-events: none; z-index: 0;
+  }
+  .time-axis { display: flex; align-items: stretch; border-top: 1px solid #30363d; }
+  .time-axis .lane-label { padding: 6px 10px 6px 0; border-right: 1px solid #21262d; }
+  .time-axis-track { position: relative; flex: 1; height: 26px; }
+  .tick {
+    position: absolute; top: 0; transform: translateX(-50%);
+    font-size: 10px; color: #6e7681;
+    font-family: 'SFMono-Regular', Consolas, monospace; white-space: nowrap;
+  }
+  .tick::before {
+    content: ''; display: block; width: 1px; height: 5px;
+    background: #30363d; margin: 0 auto 2px;
+  }
+  .tooltip {
+    display: none; position: fixed;
+    background: #1c2128; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; font-size: 12px; line-height: 1.5; color: #c9d1d9;
+    z-index: 200; pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5); max-width: 520px;
+  }
+  .tooltip .tt-tag { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+  .tooltip .tt-detail {
+    color: #8b949e; font-family: 'SFMono-Regular', Consolas, monospace; font-size: 11px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Execution Timeline</h1>
+<p class="subtitle">Opaque ID: dls-search-trace-1776488718255 &mdash; 65 entries, 182 ms &mdash; hover dots for details</p>
+
+<div class="legend" id="legend"></div>
+<div class="timeline" id="timeline"></div>
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+const TAG_COLORS = {
+  "authz-check": "#58a6ff",
+  "dls-bitset-compute": "#3fb950",
+  "dls-reader-wrap": "#d2a8ff",
+  "http-authn": "#f78166",
+  "http-incoming": "#e3b341",
+  "http-request": "#f97583",
+  "inbound-handler-exec-response-handler": "#ff9bce",
+  "inbound-handler-handle-request": "#79c0ff",
+  "search-execute": "#56d364",
+  "search-send-query": "#bc8cff",
+  "shard-query-execute": "#da3633",
+  "task-manager-register-and-execute": "#f0883e",
+  "thread-context-run": "#db61a2",
+  "transport-authn-authz": "#a5d6ff",
+  "transport-send-request": "#6e7681"
+};
+const NODES = [
+  {
+    "id": "test-cluster-0",
+    "badgeColor": "#e3b34126",
+    "textColor": "#e3b341"
+  },
+  {
+    "id": "test-cluster-1",
+    "badgeColor": "#388bfd26",
+    "textColor": "#58a6ff"
+  }
+];
+const TREES = [
+  {
+    "node": "test-cluster-0",
+    "thread": "#43,elasticsearch[test-cluster-0]/transport_worker (task 1)",
+    "events": [
+      {
+        "tag": "http-incoming",
+        "time": 0,
+        "detail": "method=GET, uri=dls-trace-test/_search?size=10"
+      },
+      {
+        "tag": "http-authn",
+        "time": 4,
+        "detail": "uri=dls-trace-test/_search?size=10"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#43,elasticsearch[test-cluster-0]/transport_worker (task 2)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 6,
+        "detail": "action=indices:data/read/get"
+      },
+      {
+        "tag": "authz-check",
+        "time": 10,
+        "detail": "action=indices:data/read/get, user=_xpack_security"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 13,
+        "detail": "action=indices:data/read/get[s]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 15,
+        "detail": "action=indices:data/read/get[s], user=_xpack_security"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#66,elasticsearch[test-cluster-0]/system_critical_read",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 17,
+        "detail": "wrappedClass=org.elasticsearch.action.ActionRunnable$4"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 19,
+        "detail": "shardId=[.security-7][0], hasDls=false, dlsQuery=null"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#67,elasticsearch[test-cluster-0]/get",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 24,
+        "detail": "wrappedClass=org.elasticsearch.transport.TransportService$DirectResponseChannel$1"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#43,elasticsearch[test-cluster-0]/transport_worker (task 3)",
+    "events": [
+      {
+        "tag": "http-request",
+        "time": 82,
+        "detail": "method=GET, uri=dls-trace-test/_search?size=10"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#43,elasticsearch[test-cluster-0]/transport_worker (task 4)",
+    "events": [
+      {
+        "tag": "task-manager-register-and-execute",
+        "time": 84,
+        "detail": "action=indices:data/read/search"
+      },
+      {
+        "tag": "authz-check",
+        "time": 85,
+        "detail": "action=indices:data/read/search, user=dls_trace_user"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#40,elasticsearch[test-cluster-0]/generic",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 86,
+        "detail": "wrappedClass=org.elasticsearch.xpack.security.authz.store.DeprecationRoleDescriptorConsumer$2"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#50,elasticsearch[test-cluster-0]/generic",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 86,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.AbstractThrottledTaskRunner$1"
+      },
+      {
+        "tag": "search-execute",
+        "time": 90,
+        "detail": "indices=[dls-trace-test]"
+      },
+      {
+        "tag": "search-send-query",
+        "time": 98,
+        "detail": "shard=[dls-trace-test][1], node=test-cluster-0"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 99,
+        "detail": "action=indices:data/read/search[phase/query]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 100,
+        "detail": "action=indices:data/read/search[phase/query], user=dls_trace_user"
+      },
+      {
+        "tag": "shard-query-execute",
+        "time": 101,
+        "detail": "shardId=[dls-trace-test][1]"
+      },
+      {
+        "tag": "transport-send-request",
+        "time": 118,
+        "detail": "action=indices:data/read/search[query][n], node=test-cluster-1"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#69,elasticsearch[test-cluster-0]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 103,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 122,
+        "detail": "shardId=[dls-trace-test][1], hasDls=true, dlsQuery=(department:engineering)~1"
+      },
+      {
+        "tag": "dls-bitset-compute",
+        "time": 127,
+        "detail": "query=ConstantScore((department:engineering)~1), cacheHit=false, cardinality=3, maxDoc=6"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#44,elasticsearch[test-cluster-0]/transport_worker (task 1)",
+    "events": [
+      {
+        "tag": "inbound-handler-exec-response-handler",
+        "time": 150,
+        "detail": "handler=ContextRestoreResponseHandler[UnregisterChildTransportResponseHandler[unregisterChildNode=releaseOnce[org.elasticsearch.tasks.TaskManager$$Lambda/0x000000f8017af7b8@28b9e6f0], handler=org.elasticsearch.action.search.SearchQueryThenFetchAsyncAction$1@62a4211e, action=indices:data/read/search[query][n], childRequest=org.elasticsearch.action.search.SearchQueryThenFetchAsyncAction$NodeQueryRequest/KP0mWF8sQLqa87AFZNDzPA:140, childConnection=NodeChannels[{test-cluster-1}{DFETNU20T5iVW2XExwtaUg}{8Z7u3clgR_qarFE48EhO-A}{test-cluster-1}{127.0.0.1}{127.0.0.1:60811}{cdfhilmrstw}{9.5.0}{8000099-9095000}], taskManager=org.elasticsearch.tasks.TaskManager@2b4937c6]]"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#70,elasticsearch[test-cluster-0]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 157,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 159,
+        "detail": "action=internal:data/read/search/fetch/coordination"
+      },
+      {
+        "tag": "authz-check",
+        "time": 160,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "authz-check",
+        "time": 160,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "transport-send-request",
+        "time": 162,
+        "detail": "action=indices:data/read/search[phase/fetch/id], node=test-cluster-1"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 173,
+        "detail": "action=internal:data/read/search/fetch/coordination"
+      },
+      {
+        "tag": "authz-check",
+        "time": 173,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "authz-check",
+        "time": 174,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 175,
+        "detail": "action=indices:data/read/search[phase/fetch/id]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 176,
+        "detail": "action=indices:data/read/search[phase/fetch/id], user=dls_trace_user"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 178,
+        "detail": "action=internal:data/read/search/fetch/coordination"
+      },
+      {
+        "tag": "authz-check",
+        "time": 178,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "authz-check",
+        "time": 178,
+        "detail": "action=internal:data/read/search/fetch/coordination, user=_system"
+      },
+      {
+        "tag": "transport-send-request",
+        "time": 179,
+        "detail": "action=indices:data/read/search[phase/fetch/id], node=test-cluster-1"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#71,elasticsearch[test-cluster-0]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 178,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 178,
+        "detail": "shardId=[dls-trace-test][1], hasDls=true, dlsQuery=(department:engineering)~1"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#43,elasticsearch[test-cluster-0]/transport_worker (task 5)",
+    "events": [
+      {
+        "tag": "inbound-handler-exec-response-handler",
+        "time": 192,
+        "detail": "handler=ContextRestoreResponseHandler[UnregisterChildTransportResponseHandler[unregisterChildNode=releaseOnce[org.elasticsearch.tasks.TaskManager$$Lambda/0x000000f8017af7b8@2fe4e469], handler=ActionListenerResponseHandler[org.elasticsearch.action.ActionListenerImplementations$RunAfterActionListener/WrappedActionListener{org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c6030@4a6ee12e}{org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c6270@67abc66b}/org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c64b0@55bcac4e], action=indices:data/read/search[phase/fetch/id], childRequest=org.elasticsearch.search.fetch.ShardFetchSearchRequest/KP0mWF8sQLqa87AFZNDzPA:140, childConnection=NodeChannels[{test-cluster-1}{DFETNU20T5iVW2XExwtaUg}{8Z7u3clgR_qarFE48EhO-A}{test-cluster-1}{127.0.0.1}{127.0.0.1:60811}{cdfhilmrstw}{9.5.0}{8000099-9095000}], taskManager=org.elasticsearch.tasks.TaskManager@2b4937c6]]"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-0",
+    "thread": "#44,elasticsearch[test-cluster-0]/transport_worker (task 2)",
+    "events": [
+      {
+        "tag": "inbound-handler-exec-response-handler",
+        "time": 192,
+        "detail": "handler=ContextRestoreResponseHandler[UnregisterChildTransportResponseHandler[unregisterChildNode=releaseOnce[org.elasticsearch.tasks.TaskManager$$Lambda/0x000000f8017af7b8@92584f2], handler=ActionListenerResponseHandler[org.elasticsearch.action.ActionListenerImplementations$RunAfterActionListener/WrappedActionListener{org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c6030@5b90a2ac}{org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c6270@15528b4b}/org.elasticsearch.search.fetch.chunk.TransportFetchPhaseCoordinationAction$$Lambda/0x000000f8019c64b0@25b9a301], action=indices:data/read/search[phase/fetch/id], childRequest=org.elasticsearch.search.fetch.ShardFetchSearchRequest/KP0mWF8sQLqa87AFZNDzPA:140, childConnection=NodeChannels[{test-cluster-1}{DFETNU20T5iVW2XExwtaUg}{8Z7u3clgR_qarFE48EhO-A}{test-cluster-1}{127.0.0.1}{127.0.0.1:60811}{cdfhilmrstw}{9.5.0}{8000099-9095000}], taskManager=org.elasticsearch.tasks.TaskManager@2b4937c6]]"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#43,elasticsearch[test-cluster-1]/transport_worker",
+    "events": [
+      {
+        "tag": "inbound-handler-handle-request",
+        "time": 120,
+        "detail": "action=indices:data/read/search[query][n]"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 129,
+        "detail": "action=indices:data/read/search[query][n]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 130,
+        "detail": "action=indices:data/read/search[query][n], user=dls_trace_user"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#71,elasticsearch[test-cluster-1]/generic",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 131,
+        "detail": "wrappedClass=org.elasticsearch.xpack.security.authz.store.DeprecationRoleDescriptorConsumer$2"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#59,elasticsearch[test-cluster-1]/generic",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 131,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.AbstractThrottledTaskRunner$1"
+      },
+      {
+        "tag": "shard-query-execute",
+        "time": 133,
+        "detail": "shardId=[dls-trace-test][0]"
+      },
+      {
+        "tag": "shard-query-execute",
+        "time": 135,
+        "detail": "shardId=[dls-trace-test][2]"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#99,elasticsearch[test-cluster-1]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 135,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 139,
+        "detail": "shardId=[dls-trace-test][0], hasDls=true, dlsQuery=(department:engineering)~1"
+      },
+      {
+        "tag": "dls-bitset-compute",
+        "time": 145,
+        "detail": "query=ConstantScore((department:engineering)~1), cacheHit=false, cardinality=3, maxDoc=9"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#100,elasticsearch[test-cluster-1]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 136,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 139,
+        "detail": "shardId=[dls-trace-test][2], hasDls=true, dlsQuery=(department:engineering)~1"
+      },
+      {
+        "tag": "dls-bitset-compute",
+        "time": 145,
+        "detail": "query=ConstantScore((department:engineering)~1), cacheHit=false, cardinality=3, maxDoc=5"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#44,elasticsearch[test-cluster-1]/transport_worker (task 1)",
+    "events": [
+      {
+        "tag": "inbound-handler-handle-request",
+        "time": 173,
+        "detail": "action=indices:data/read/search[phase/fetch/id]"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 176,
+        "detail": "action=indices:data/read/search[phase/fetch/id]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 176,
+        "detail": "action=indices:data/read/search[phase/fetch/id], user=dls_trace_user"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#101,elasticsearch[test-cluster-1]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 178,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 179,
+        "detail": "shardId=[dls-trace-test][0], hasDls=true, dlsQuery=(department:engineering)~1"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#44,elasticsearch[test-cluster-1]/transport_worker (task 2)",
+    "events": [
+      {
+        "tag": "inbound-handler-handle-request",
+        "time": 180,
+        "detail": "action=indices:data/read/search[phase/fetch/id]"
+      },
+      {
+        "tag": "transport-authn-authz",
+        "time": 181,
+        "detail": "action=indices:data/read/search[phase/fetch/id]"
+      },
+      {
+        "tag": "authz-check",
+        "time": 181,
+        "detail": "action=indices:data/read/search[phase/fetch/id], user=dls_trace_user"
+      }
+    ]
+  },
+  {
+    "node": "test-cluster-1",
+    "thread": "#102,elasticsearch[test-cluster-1]/search",
+    "events": [
+      {
+        "tag": "thread-context-run",
+        "time": 182,
+        "detail": "wrappedClass=org.elasticsearch.common.util.concurrent.TimedRunnable"
+      },
+      {
+        "tag": "dls-reader-wrap",
+        "time": 182,
+        "detail": "shardId=[dls-trace-test][2], hasDls=true, dlsQuery=(department:engineering)~1"
+      }
+    ]
+  }
+];
+
+const PAD_L = 16;
+const PAD_R = 19;
+const T_MIN = 0;
+const T_MAX = 200;
+const T_SPAN = T_MAX - T_MIN;
+const TICK_INTERVAL = 25;
+const MIN_GAP = 1.4;
+
+function pct(t) { return PAD_L + ((t - T_MIN) / T_SPAN) * (100 - PAD_L - PAD_R); }
+
+function displayPositions(events) {
+  const natural = events.map(e => pct(e.time));
+  const pos = [...natural];
+  for (let i = 1; i < pos.length; i++) {
+    if (pos[i] - pos[i - 1] < MIN_GAP) pos[i] = pos[i - 1] + MIN_GAP;
+  }
+  return { pos, nudged: pos.map((p, i) => Math.abs(p - natural[i]) > 0.01) };
+}
+
+function buildLegend() {
+  const el = document.getElementById('legend');
+  const timeline = document.getElementById('timeline');
+  for (const [tag, color] of Object.entries(TAG_COLORS)) {
+    const item = document.createElement('div');
+    item.className = 'legend-item';
+    const dot = document.createElement('div');
+    dot.className = 'legend-dot';
+    dot.style.background = color;
+    item.appendChild(dot);
+    item.appendChild(document.createTextNode(tag));
+    item.addEventListener('mouseenter', () => {
+      timeline.classList.add('highlight-tag');
+      timeline.querySelectorAll('.evt-dot[data-tag="' + tag + '"]').forEach(d => {
+        d.classList.add('evt-highlighted');
+      });
+    });
+    item.addEventListener('mouseleave', () => {
+      timeline.classList.remove('highlight-tag');
+      timeline.querySelectorAll('.evt-dot.evt-highlighted').forEach(d => {
+        d.classList.remove('evt-highlighted');
+      });
+    });
+    el.appendChild(item);
+  }
+  const nudgeHint = document.createElement('div');
+  nudgeHint.className = 'legend-nudge';
+  const nudgeIcon = document.createElement('div');
+  nudgeIcon.className = 'legend-nudge-icon';
+  nudgeHint.appendChild(nudgeIcon);
+  nudgeHint.appendChild(document.createTextNode('position adjusted for spacing'));
+  el.appendChild(nudgeHint);
+  const modHint = document.createElement('div');
+  modHint.className = 'legend-nudge';
+  modHint.appendChild(document.createTextNode('hold ⌘/Alt + hover dot to highlight type'));
+  el.appendChild(modHint);
+}
+
+function buildTimeline() {
+  const container = document.getElementById('timeline');
+  const tooltip = document.getElementById('tooltip');
+  const ticks = [];
+  for (let t = T_MIN; t <= T_MAX; t += TICK_INTERVAL) ticks.push(t);
+  const tagCounters = {};
+
+  NODES.forEach((node, ni) => {
+    const lane = document.createElement('div');
+    lane.className = 'lane';
+
+    const label = document.createElement('div');
+    label.className = 'lane-label';
+    const badge = document.createElement('span');
+    badge.className = 'node-badge';
+    badge.style.background = node.badgeColor;
+    badge.style.color = node.textColor;
+    badge.textContent = node.id;
+    label.appendChild(badge);
+    lane.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'lane-track';
+
+    const nodeTrees = TREES.filter(t => t.node === node.id);
+
+    ticks.forEach(t => {
+      const gl = document.createElement('div');
+      gl.className = 'gridline';
+      gl.style.left = pct(t) + '%';
+      track.appendChild(gl);
+    });
+
+    nodeTrees.forEach(tree => {
+      const sl = document.createElement('div');
+      sl.className = 'sub-lane';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'thread-lbl';
+      lbl.textContent = tree.thread;
+      sl.appendChild(lbl);
+
+      const { pos, nudged } = displayPositions(tree.events);
+
+      if (pos.length > 1) {
+        const line = document.createElement('div');
+        line.className = 'conn-line';
+        line.style.left = pos[0] + '%';
+        line.style.width = (pos[pos.length - 1] - pos[0]) + '%';
+        sl.appendChild(line);
+      }
+
+      tree.events.forEach((evt, ei) => {
+        const dot = document.createElement('div');
+        dot.className = 'evt-dot';
+        if (nudged[ei]) dot.classList.add('nudged');
+        dot.dataset.tag = evt.tag;
+        tagCounters[evt.tag] = (tagCounters[evt.tag] || 0) + 1;
+        dot.dataset.tagIdx = tagCounters[evt.tag];
+        const color = TAG_COLORS[evt.tag] || '#6e7681';
+        dot.style.background = color;
+        dot.style.color = color;
+        dot.style.left = pos[ei] + '%';
+        attachTooltip(dot, evt, tree, tooltip, nudged[ei]);
+        sl.appendChild(dot);
+      });
+
+      track.appendChild(sl);
+    });
+
+    lane.appendChild(track);
+    container.appendChild(lane);
+  });
+
+  const axis = document.createElement('div');
+  axis.className = 'time-axis';
+  const axLbl = document.createElement('div');
+  axLbl.className = 'lane-label';
+  axLbl.innerHTML = '<span style="font-size:10px;color:#6e7681">time (ms)</span>';
+  axis.appendChild(axLbl);
+  const axTrack = document.createElement('div');
+  axTrack.className = 'time-axis-track';
+  ticks.forEach(t => {
+    const tick = document.createElement('div');
+    tick.className = 'tick';
+    tick.style.left = pct(t) + '%';
+    tick.textContent = t;
+    axTrack.appendChild(tick);
+  });
+  axis.appendChild(axTrack);
+  container.appendChild(axis);
+  tagTotals = tagCounters;
+}
+
+let hoveredTag = null;
+let hoveredDot = null;
+let tagTotals = {};
+const timeline = document.getElementById('timeline');
+
+function activateTagHighlight(tag) {
+  timeline.classList.add('highlight-tag');
+  timeline.querySelectorAll('.evt-dot[data-tag="' + tag + '"]').forEach(d => {
+    d.classList.add('evt-highlighted');
+  });
+  if (hoveredDot) appendTagCount(hoveredDot, tag);
+}
+
+function clearTagHighlight() {
+  timeline.classList.remove('highlight-tag');
+  timeline.querySelectorAll('.evt-dot.evt-highlighted').forEach(d => {
+    d.classList.remove('evt-highlighted');
+  });
+  const countEl = document.getElementById('tooltip').querySelector('.tt-count');
+  if (countEl) countEl.remove();
+}
+
+function appendTagCount(dot, tag) {
+  const tooltip = document.getElementById('tooltip');
+  if (tooltip.querySelector('.tt-count')) return;
+  const idx = dot.dataset.tagIdx;
+  const total = tagTotals[tag] || '?';
+  const el = document.createElement('div');
+  el.className = 'tt-count';
+  el.style.cssText = 'margin-top:4px;padding-top:4px;border-top:1px solid #30363d;color:#8b949e;font-size:11px;font-family:SFMono-Regular,Consolas,monospace';
+  el.textContent = idx + ' of ' + total + ' [' + tag + ']';
+  tooltip.appendChild(el);
+}
+
+document.addEventListener('keydown', e => {
+  if ((e.altKey || e.metaKey) && hoveredTag && !timeline.classList.contains('highlight-tag')) {
+    activateTagHighlight(hoveredTag);
+  }
+});
+document.addEventListener('keyup', () => {
+  if (timeline.classList.contains('highlight-tag')) clearTagHighlight();
+});
+
+function attachTooltip(el, evt, tree, tooltip, isNudged) {
+  el.addEventListener('mouseenter', e => {
+    hoveredTag = evt.tag;
+    hoveredDot = el;
+    const lane = el.closest('.sub-lane');
+    if (lane) lane.classList.add('row-highlight');
+    const color = TAG_COLORS[evt.tag] || '#6e7681';
+    let html = '<div class="tt-tag" style="color:' + color + '">[' + evt.tag + ']</div>';
+    html += '<div class="tt-detail">';
+    html += '@' + evt.time + 'ms';
+    html += '<br>thread: ' + tree.thread;
+    if (evt.exchangeId) html += '<br>exchangeId: ' + evt.exchangeId;
+    if (evt.detail) html += '<br>' + evt.detail;
+    if (isNudged) html += '<br><span style="color:#e3b341">⬥ position adjusted for spacing</span>';
+    html += '</div>';
+    tooltip.innerHTML = html;
+    tooltip.style.display = 'block';
+    posTooltip(e);
+    if (e.altKey || e.metaKey) activateTagHighlight(evt.tag);
+  });
+  el.addEventListener('mousemove', posTooltip);
+  el.addEventListener('mouseleave', () => {
+    hoveredTag = null;
+    hoveredDot = null;
+    tooltip.style.display = 'none';
+    const lane = el.closest('.sub-lane');
+    if (lane) lane.classList.remove('row-highlight');
+    clearTagHighlight();
+  });
+
+  function posTooltip(e) {
+    let x = e.clientX + 14, y = e.clientY + 14;
+    const r = tooltip.getBoundingClientRect();
+    if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 14;
+    if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 14;
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+}
+
+buildLegend();
+buildTimeline();
+</script>
+</body>
+</html>
